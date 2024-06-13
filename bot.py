@@ -3,25 +3,30 @@ from PIL import Image, ImageOps
 import io
 from telebot import types
 import os
+import random
 
-# Получаем токен бота из переменных окружения
+
 TOKEN = os.environ.get('TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-# Состояние пользователей
-user_states = {}  # Словарь для хранения информации о действиях пользователя
+user_states = {}
 
-# Набор символов по умолчанию для ASCII art
 DEFAULT_ASCII_CHARS = '@%#*+=-:. '
+
+JOKES = ["Почему учёные не доверяют атомам? Потому что из них состоит всё!",
+         "Почему Пугало получил награду? Потому что он был выдающимся специалистом в своей области!",
+         "Почему скелеты не дерутся друг с другом? У них не хватает смелости.",
+         "Как вы называете фальшивые спагетти? Тесто!",
+         "Почему учебник по математике выглядел грустным? Потому что в нем было слишком много задач",
+         "Почему петух так много поёт? Потому что у него десять жён и ни одной тёщи.",
+         "Что означает словосочетание «видимо-невидимо»? Это когда барахлит телевизор.",
+         "Нет в мире ничего более постоянного, чем временная пломба.",
+         ]
 
 
 def resize_image(image, new_width=100):
     """
     Изменяет размер изображения, сохраняя пропорции.
-
-    :param image: Исходное изображение
-    :param new_width: Новая ширина изображения
-    :return: Измененное изображение
     """
     width, height = image.size
     ratio = height / width
@@ -32,9 +37,6 @@ def resize_image(image, new_width=100):
 def grayify(image):
     """
     Конвертирует изображение в оттенки серого.
-
-    :param image: Исходное изображение
-    :return: Изображение в оттенках серого
     """
     return image.convert("L")
 
@@ -42,11 +44,6 @@ def grayify(image):
 def image_to_ascii(image_stream, ascii_chars, new_width=40):
     """
     Преобразует изображение в ASCII art.
-
-    :param image_stream: Поток данных изображения
-    :param ascii_chars: Набор символов для ASCII art
-    :param new_width: Новая ширина изображения
-    :return: Строка с ASCII art
     """
     image = Image.open(image_stream).convert('L')
     width, height = image.size
@@ -69,10 +66,6 @@ def image_to_ascii(image_stream, ascii_chars, new_width=40):
 def pixels_to_ascii(image, ascii_chars):
     """
     Преобразует пиксели изображения в символы ASCII.
-
-    :param image: Изображение в оттенках серого
-    :param ascii_chars: Набор символов для ASCII art
-    :return: Строка с символами ASCII
     """
     pixels = image.getdata()
     characters = ""
@@ -84,10 +77,6 @@ def pixels_to_ascii(image, ascii_chars):
 def pixelate_image(image, pixel_size):
     """
     Огрубляет изображение (пикселизация).
-
-    :param image: Исходное изображение
-    :param pixel_size: Размер пикселя
-    :return: Пикселизированное изображение
     """
     image = image.resize((image.size[0] // pixel_size, image.size[1] // pixel_size), Image.NEAREST)
     image = image.resize((image.size[0] * pixel_size, image.size[1] * pixel_size), Image.NEAREST)
@@ -97,11 +86,41 @@ def pixelate_image(image, pixel_size):
 def invert_colors(image):
     """
     Инвертирует цвета изображения (создание негатива).
-
-    :param image: Исходное изображение
-    :return: Изображение с инвертированными цветами
     """
     return ImageOps.invert(image)
+
+
+def mirror_image(image, direction):
+    """
+    Отражает изображение по горизонтали или вертикали.
+    """
+    if direction == "horizontal":
+        return image.transpose(Image.FLIP_LEFT_RIGHT)
+    elif direction == "vertical":
+        return image.transpose(Image.FLIP_TOP_BOTTOM)
+    else:
+        raise ValueError("Invalid direction. Use 'horizontal' or 'vertical'.")
+
+
+def convert_to_heatmap(image):
+    """
+    Преобразует изображение в тепловую карту.
+    """
+    gray_image = grayify(image)
+    heatmap = ImageOps.colorize(gray_image, "blue", "red")
+    return heatmap
+
+
+def resize_for_sticker(image, max_size=512):
+    """
+    Изменяет размер изображения для использования в качестве стикера в Telegram.
+    """
+    max_dim = max(image.size)
+    if max_dim > max_size:
+        ratio = max_size / float(max_dim)
+        new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
+        return image.resize(new_size, Image.LANCZOS)
+    return image
 
 
 @bot.message_handler(commands=['start', 'help'])
@@ -110,6 +129,15 @@ def send_welcome(message):
     Обрабатывает команды /start и /help, отправляя приветственное сообщение.
     """
     bot.reply_to(message, "Send me an image, and I'll provide options for you!")
+
+
+@bot.message_handler(commands=['joke'])
+def send_joke(message):
+    """
+    Обрабатывает команду /joke, отправляя случайную шутку пользователю.
+    """
+    joke = random.choice(JOKES)
+    bot.reply_to(message, joke)
 
 
 @bot.message_handler(content_types=['photo'])
@@ -125,15 +153,19 @@ def handle_photo(message):
 def get_options_keyboard():
     """
     Создает клавиатуру с опциями для обработки изображения.
-
-    :return: Объект InlineKeyboardMarkup с кнопками
     """
     keyboard = types.InlineKeyboardMarkup()
     pixelate_btn = types.InlineKeyboardButton("Pixelate", callback_data="pixelate")
     ascii_btn = types.InlineKeyboardButton("ASCII Art", callback_data="ascii")
     custom_ascii_btn = types.InlineKeyboardButton("Custom ASCII Art", callback_data="custom_ascii")
     invert_btn = types.InlineKeyboardButton("Invert Colors", callback_data="invert")
-    keyboard.add(pixelate_btn, ascii_btn, custom_ascii_btn, invert_btn)
+    mirror_horizontal_btn = types.InlineKeyboardButton("Mirror Horizontal", callback_data="mirror_horizontal")
+    mirror_vertical_btn = types.InlineKeyboardButton("Mirror Vertical", callback_data="mirror_vertical")
+    heatmap_btn = types.InlineKeyboardButton("Convert to Heatmap", callback_data="heatmap")
+    sticker_btn = types.InlineKeyboardButton("Resize for Sticker", callback_data="sticker")
+    joke_btn = types.InlineKeyboardButton("Random Joke", callback_data="joke")
+    keyboard.add(pixelate_btn, ascii_btn, custom_ascii_btn, invert_btn, mirror_horizontal_btn, mirror_vertical_btn,
+                 heatmap_btn, sticker_btn, joke_btn)
     return keyboard
 
 
@@ -156,9 +188,26 @@ def callback_query(call):
     elif call.data == "invert":
         bot.answer_callback_query(call.id, "Inverting colors of your image...")
         invert_and_send(call.message)
+    elif call.data == "mirror_horizontal":
+        bot.answer_callback_query(call.id, "Mirroring your image horizontally...")
+        mirror_and_send(call.message, "horizontal")
+    elif call.data == "mirror_vertical":
+        bot.answer_callback_query(call.id, "Mirroring your image vertically...")
+        mirror_and_send(call.message, "vertical")
+    elif call.data == "heatmap":
+        bot.answer_callback_query(call.id, "Converting your image to a heatmap...")
+        heatmap_and_send(call.message)
+    elif call.data == "sticker":
+        bot.answer_callback_query(call.id, "Resizing your image for a sticker...")
+        sticker_and_send(call.message)
+    elif call.data == "joke":
+        bot.answer_callback_query(call.id, "Sending you a random joke...")
+        send_joke(call.message)
 
 
-@bot.message_handler(func=lambda message: message.chat.id in user_states and 'action' in user_states[message.chat.id] and user_states[message.chat.id]['action'] == 'ascii_chars')
+@bot.message_handler(
+    func=lambda message: message.chat.id in user_states and 'action' in user_states[message.chat.id] and
+                         user_states[message.chat.id]['action'] == 'ascii_chars')
 def handle_ascii_chars(message):
     """
     Обрабатывает ввод набора символов для ASCII art.
@@ -219,6 +268,60 @@ def invert_and_send(message):
 
     output_stream = io.BytesIO()
     inverted.save(output_stream, format="JPEG")
+    output_stream.seek(0)
+    bot.send_photo(message.chat.id, output_stream)
+
+
+def mirror_and_send(message, direction):
+    """
+    Отражает изображение по заданному направлению и отправляет его пользователю.
+    """
+    photo_id = user_states[message.chat.id]['photo']
+    file_info = bot.get_file(photo_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+
+    image_stream = io.BytesIO(downloaded_file)
+    image = Image.open(image_stream)
+    mirrored = mirror_image(image, direction)
+
+    output_stream = io.BytesIO()
+    mirrored.save(output_stream, format="JPEG")
+    output_stream.seek(0)
+    bot.send_photo(message.chat.id, output_stream)
+
+
+def heatmap_and_send(message):
+    """
+    Преобразует изображение в тепловую карту и отправляет его пользователю.
+    """
+    photo_id = user_states[message.chat.id]['photo']
+    file_info = bot.get_file(photo_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+
+    image_stream = io.BytesIO(downloaded_file)
+    image = Image.open(image_stream)
+    heatmap = convert_to_heatmap(image)
+
+    output_stream = io.BytesIO()
+    heatmap.save(output_stream, format="JPEG")
+    output_stream.seek(0)
+    bot.send_photo(message.chat.id, output_stream)
+
+
+def sticker_and_send(message):
+    """
+    Изменяет размер изображения для стикера и отправляет его пользователю.
+    """
+    photo_id = user_states[message.chat.id]['photo']
+    file_info = bot.get_file(photo_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+
+    image_stream = io.BytesIO(downloaded_file)
+    image = Image.open(image_stream)
+    sticker_image = resize_for_sticker(image)
+
+    output_stream = io.BytesIO()
+    sticker_image.save(output_stream, format="PNG")
     output_stream.seek(0)
     bot.send_photo(message.chat.id, output_stream)
 
